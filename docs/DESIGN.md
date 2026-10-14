@@ -7,18 +7,20 @@ Restoran və şirkətlər üzrə camaşırxana işini telefonda tez qeyd etmək:
 ## Əsas menyu
 
 - **İcmal:** seçilmiş dövr üzrə çəki, mədaxil, məxaric və balans; son əməliyyatlar.
-- **Müştərilər:** aktiv və arxiv siyahısı, axtarış, yeni müştəri və müştəri məlumatlarını düzəltmək.
-- **Müştəri səhifəsi:** əlaqə məlumatları, balans, bütün əməliyyatlar, mədaxil/məxaric əlavə etmək, düzəltmək və silmək.
+- **Müştərilər:** aktiv və arxiv siyahısı, axtarış, hər müştərinin ödəniləcək qalığı, yeni müştəri və müştəri məlumatlarını, o cümlədən kq tarifini düzəltmək.
+- **Müştəri səhifəsi:** əlaqə məlumatları, kq tarifi, ödənilmiş məbləğ və ödəniləcək qalıq; iki əsas əməliyyat — borc əlavə etmək (yalnız çəki daxil edilir və məbləğ hesablanır) və ödəniş qəbul etmək (yalnız ödəniş məbləği daxil edilir); əməliyyat tarixçəsini təsdiqlə təmizləmək və bütün əməliyyatları düzəltmək/silmək.
+- **Xərclər:** təqvimdən tarix seçib gün və ya ay üzrə həmin dövrün xərclərinə və cəminə baxın. Xərc əlavə edilərkən adı, AZN məbləği və təqvimdən seçilən tarix daxil edilir; tarix bu günlə əvvəlcədən doldurulur.
 - **Təqvim:** aylıq təqvim, əməliyyat olan günlərin işarəsi, seçilmiş günün və həftə/ayın cəmləri.
 - **Hesablayıcı:** adi rəqəm düymələri və `+`, `−`, `×`, `÷`, faiz, işarə dəyişmə, silmə və bərabər əməliyyatları. Hesablayıcı nəticəsini müştəri və tarix seçərək əməliyyata göndərmək, tarixçədəki məbləği hesablayıcıya yükləyib həmin əməliyyatı yeniləmək mümkündür.
 - **Parametrlər:** məlumatların ehtiyat nüsxəsini ixrac etmək və təsdiqdən sonra bərpa etmək.
 
 ## Əməliyyat axını
 
-1. Müştərini açın və mədaxil və ya məxaric əməliyyatı yaradın.
-2. Tarixi və məbləği daxil edin. Səbəbi yazmaq və çəki məlumdursa kiloqramı əlavə etmək istəyə bağlıdır.
-3. Yadda saxladıqdan sonra əməliyyat müştərinin jurnalında qalır; istənilən əməliyyatı ayrıca açıb düzəltmək və ya silmək olar.
-4. Məbləğ hesablayıcıda hesablanıbsa, nəticəni müştəriyə göndərin. Mövcud əməliyyatı hesablayıcıya yükləmək onun dublikatını yaratmır; nəticə geri göndəriləndə həmin əməliyyat yenilənir.
+1. Müştəri üçün kq tarifini təyin edin.
+2. **Borc əlavə et** düyməsində kiloqramı daxil edin; tariflə hesablanmış borc tarix sahəsi bu günlə əvvəlcədən doldurulmuş halda yazılır. Təqvimdən başqa tarix seçmək və qeyd əlavə etmək istəyə bağlıdır. **Ödəniş qəbul et** düyməsində məbləği daxil edin; tarix yenə bu günlə əvvəlcədən doldurulur, təqvimdən dəyişmək və qeyd yazmaq istəyə bağlıdır. Ödəniş qalıq borcu azaldır.
+3. Xərci **Xərclər** bölməsində ad və məbləğlə qeyd edin; tarix bu günlə əvvəlcədən doldurulur və təqvimdən dəyişdirilə bilər. Xərclər siyahısında təqvimdən tarix seçib **Gün** və ya **Ay** üzrə qruplaşdırılmış xərclərə və dövrün cəminə baxın.
+4. Yadda saxladıqdan sonra müştəri əməliyyatı jurnalında qalır; istənilən əməliyyatı ayrıca açıb düzəltmək və ya silmək olar.
+5. Məbləğ hesablayıcıda hesablanıbsa, nəticəni müştəriyə göndərin. Mövcud əməliyyatı hesablayıcıya yükləmək onun dublikatını yaratmır; nəticə geri göndəriləndə həmin əməliyyat yenilənir.
 
 ## Qarşılıqlı əlaqə və əlçatanlıq
 

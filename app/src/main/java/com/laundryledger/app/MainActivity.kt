@@ -64,27 +64,41 @@ data class WorkEntry(
     @ColumnInfo(defaultValue = "'IN'") val direction: String = "IN"
 )
 
+@Entity(tableName = "costs", indices = [Index("date")])
+data class CostEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val date: String,
+    val amountCents: Long
+)
+
 @Dao
 interface LedgerDao {
     @Query("SELECT * FROM customers ORDER BY archived, name COLLATE NOCASE") fun customers(): Flow<List<Customer>>
     @Query("SELECT * FROM work_entries ORDER BY date DESC, id DESC") fun entries(): Flow<List<WorkEntry>>
+    @Query("SELECT * FROM costs ORDER BY date DESC, id DESC") fun costs(): Flow<List<CostEntry>>
     @Query("SELECT * FROM customers ORDER BY id") suspend fun allCustomers(): List<Customer>
     @Query("SELECT * FROM work_entries ORDER BY id") suspend fun allEntries(): List<WorkEntry>
+    @Query("SELECT * FROM costs ORDER BY id") suspend fun allCosts(): List<CostEntry>
     @Insert suspend fun addCustomer(customer: Customer): Long
     @Update suspend fun updateCustomer(customer: Customer)
     @Insert suspend fun addEntry(entry: WorkEntry): Long
     @Update suspend fun updateEntry(entry: WorkEntry)
+    @Insert suspend fun addCost(cost: CostEntry): Long
     @Query("DELETE FROM work_entries WHERE id = :id") suspend fun deleteEntry(id: Long)
     @Query("DELETE FROM work_entries WHERE customerId = :customerId") suspend fun deleteCustomerEntries(customerId: Long)
     @Query("DELETE FROM customers WHERE id = :customerId") suspend fun deleteCustomer(customerId: Long)
     @Query("DELETE FROM work_entries") suspend fun clearEntries()
+    @Query("DELETE FROM costs") suspend fun clearCosts()
     @Query("DELETE FROM customers") suspend fun clearCustomers()
     @Insert suspend fun insertCustomers(items: List<Customer>)
     @Insert suspend fun insertEntries(items: List<WorkEntry>)
-    @Transaction suspend fun replaceAll(customers: List<Customer>, entries: List<WorkEntry>) {
-        clearEntries(); clearCustomers()
+    @Insert suspend fun insertCosts(items: List<CostEntry>)
+    @Transaction suspend fun replaceAll(customers: List<Customer>, entries: List<WorkEntry>, costs: List<CostEntry>) {
+        clearEntries(); clearCosts(); clearCustomers()
         if (customers.isNotEmpty()) insertCustomers(customers)
         if (entries.isNotEmpty()) insertEntries(entries)
+        if (costs.isNotEmpty()) insertCosts(costs)
     }
     @Transaction suspend fun permanentlyDeleteCustomer(customerId: Long) {
         deleteCustomerEntries(customerId)
@@ -92,7 +106,7 @@ interface LedgerDao {
     }
 }
 
-@Database(entities = [Customer::class, WorkEntry::class], version = 2, exportSchema = true)
+@Database(entities = [Customer::class, WorkEntry::class, CostEntry::class], version = 3, exportSchema = true)
 abstract class LedgerDatabase : RoomDatabase() {
     abstract fun dao(): LedgerDao
     companion object {
@@ -103,11 +117,17 @@ abstract class LedgerDatabase : RoomDatabase() {
                 db.execSQL("UPDATE `work_entries` SET `direction` = 'OUT', `amountCents` = ABS(`amountCents`) WHERE `amountCents` < 0")
             }
         }
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `costs` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `date` TEXT NOT NULL, `amountCents` INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_costs_date` ON `costs` (`date`)")
+            }
+        }
 
         @Volatile private var instance: LedgerDatabase? = null
         fun get(context: android.content.Context) = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context, LedgerDatabase::class.java, "laundry-ledger.db")
-                .addMigrations(MIGRATION_1_2).build().also { instance = it }
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }
@@ -120,13 +140,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             val customers by dao.customers().collectAsStateWithLifecycle(emptyList())
             val entries by dao.entries().collectAsStateWithLifecycle(emptyList())
+            val costs by dao.costs().collectAsStateWithLifecycle(emptyList())
             val scope = rememberCoroutineScope()
             var backupMessage by remember { mutableStateOf("") }
             val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
                 if (uri != null) scope.launch(Dispatchers.IO) {
                     runCatching {
                         val output = contentResolver.openOutputStream(uri) ?: error("Fayl açıla bilmədi")
-                        output.bufferedWriter().use { it.write(makeBackup(dao.allCustomers(), dao.allEntries())) }
+                        output.bufferedWriter().use { it.write(makeBackup(dao.allCustomers(), dao.allEntries(), dao.allCosts())) }
                     }.onSuccess { withContext(Dispatchers.Main) { backupMessage = "Ehtiyat nüsxəsi saxlanıldı." } }
                         .onFailure { withContext(Dispatchers.Main) { backupMessage = "Ehtiyat nüsxəsi saxlanmadı: ${it.message}" } }
                 }
@@ -136,7 +157,7 @@ class MainActivity : ComponentActivity() {
                     runCatching {
                         val raw = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Fayl oxuna bilmədi")
                         val parsed = parseBackup(raw)
-                        dao.replaceAll(parsed.first, parsed.second)
+                        dao.replaceAll(parsed.first, parsed.second, parsed.third)
                     }.onSuccess { withContext(Dispatchers.Main) { backupMessage = "Ehtiyat nüsxəsi bərpa edildi." } }
                         .onFailure { withContext(Dispatchers.Main) { backupMessage = "Bərpa alınmadı: ${it.message}" } }
                 }
@@ -148,6 +169,7 @@ class MainActivity : ComponentActivity() {
                 LaundryLedgerApp(
                     customers = customers,
                     entries = entries,
+                    costs = costs,
                     dao = dao,
                     backup = { backupLauncher.launch("camasirxana-ehtiyat-nusxesi.json") },
                     restore = { restoreLauncher.launch(arrayOf("application/json", "text/*")) },
@@ -160,7 +182,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Page(val title: String) {
-    OVERVIEW("İcmal"), CUSTOMERS("Müştərilər"), CALENDAR("Təqvim"), CALCULATOR("Hesablayıcı"), SETTINGS("Parametrlər"), CUSTOMER_DETAIL("Müştəri")
+    OVERVIEW("İcmal"), CUSTOMERS("Müştərilər"), COSTS("Xərclər"), CALENDAR("Təqvim"), CALCULATOR("Hesablayıcı"), SETTINGS("Parametrlər"), CUSTOMER_DETAIL("Müştəri")
 }
 
 private enum class CalcOperator(val symbol: String) { ADD("+"), SUBTRACT("−"), MULTIPLY("×"), DIVIDE("÷") }
@@ -169,6 +191,7 @@ private enum class CalcOperator(val symbol: String) { ADD("+"), SUBTRACT("−"),
 private fun LaundryLedgerApp(
     customers: List<Customer>,
     entries: List<WorkEntry>,
+    costs: List<CostEntry>,
     dao: LedgerDao,
     backup: () -> Unit,
     restore: () -> Unit,
@@ -178,6 +201,8 @@ private fun LaundryLedgerApp(
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(Page.OVERVIEW) }
     var selectedPeriod by remember { mutableStateOf("Həftə") }
+    var costSelectedPeriod by remember { mutableStateOf("Ay") }
+    var costFocusDate by remember { mutableStateOf(LocalDate.now()) }
     var focusDate by remember { mutableStateOf(LocalDate.now()) }
     var selectedCustomerId by remember { mutableLongStateOf(0L) }
     var calculatorCustomerId by remember { mutableLongStateOf(0L) }
@@ -194,9 +219,26 @@ private fun LaundryLedgerApp(
 
     var showCustomerDialog by remember { mutableStateOf(false) }
     var customerBeingEdited by remember { mutableStateOf<Customer?>(null) }
+    var showCostDialog by remember { mutableStateOf(false) }
+    var costName by remember { mutableStateOf("") }
+    var costAmount by remember { mutableStateOf("") }
+    var costDate by remember { mutableStateOf(LocalDate.now().format(INPUT_DATE_FORMAT)) }
+    var costError by remember { mutableStateOf("") }
     var showArchived by remember { mutableStateOf(false) }
     var customerSearch by remember { mutableStateOf("") }
     var showTransactionDialog by remember { mutableStateOf(false) }
+    var showLoanDialog by remember { mutableStateOf(false) }
+    var loanCustomerId by remember { mutableLongStateOf(0L) }
+    var loanKilograms by remember { mutableStateOf("") }
+    var loanDate by remember { mutableStateOf(LocalDate.now().format(INPUT_DATE_FORMAT)) }
+    var loanNote by remember { mutableStateOf("") }
+    var loanError by remember { mutableStateOf("") }
+    var showPaymentDialog by remember { mutableStateOf(false) }
+    var paymentCustomerId by remember { mutableLongStateOf(0L) }
+    var paymentAmount by remember { mutableStateOf("") }
+    var paymentDate by remember { mutableStateOf(LocalDate.now().format(INPUT_DATE_FORMAT)) }
+    var paymentNote by remember { mutableStateOf("") }
+    var paymentError by remember { mutableStateOf("") }
     var transactionId by remember { mutableLongStateOf(0L) }
     var transactionCustomerId by remember { mutableLongStateOf(0L) }
     var transactionDate by remember { mutableStateOf(LocalDate.now().format(INPUT_DATE_FORMAT)) }
@@ -207,6 +249,7 @@ private fun LaundryLedgerApp(
     var transactionError by remember { mutableStateOf("") }
     var deleteEntryId by remember { mutableLongStateOf(0L) }
     var deleteCustomerId by remember { mutableLongStateOf(0L) }
+    var clearCustomerHistoryId by remember { mutableLongStateOf(0L) }
     var confirmRestore by remember { mutableStateOf(false) }
 
     val activeCustomers = customers.filterNot { it.archived }
@@ -214,16 +257,92 @@ private fun LaundryLedgerApp(
     val selectedCustomer = customers.firstOrNull { it.id == selectedCustomerId }
     val customerName: (Long) -> String = { id -> customers.firstOrNull { it.id == id }?.name ?: "Naməlum müştəri" }
 
-    fun openNewTransaction(customerId: Long, direction: String = "IN") {
-        transactionId = 0L
-        transactionCustomerId = customerId
-        transactionDate = LocalDate.now().format(INPUT_DATE_FORMAT)
-        transactionDirection = direction
-        transactionAmount = ""
-        transactionKilograms = ""
-        transactionReason = ""
-        transactionError = ""
-        showTransactionDialog = true
+    fun openCostDialog() {
+        costName = ""
+        costAmount = ""
+        costDate = LocalDate.now().format(INPUT_DATE_FORMAT)
+        costError = ""
+        showCostDialog = true
+    }
+
+    fun saveCost() {
+        val amountCents = textToCents(costAmount)
+        val date = parseDate(costDate)
+        if (costName.isBlank()) costError = "Xərcin adını daxil edin."
+        else if (amountCents == null || amountCents <= 0) costError = "Xərc məbləğini düzgün daxil edin."
+        else if (date == null) costError = "Tarixi düzgün seçin."
+        else {
+            val cost = CostEntry(
+                name = costName.trim(),
+                date = date.toString(),
+                amountCents = amountCents
+            )
+            scope.launch(Dispatchers.IO) { dao.addCost(cost) }
+            showCostDialog = false
+        }
+    }
+
+    fun openLoanDialog(customerId: Long) {
+        loanCustomerId = customerId
+        loanKilograms = ""
+        loanDate = LocalDate.now().format(INPUT_DATE_FORMAT)
+        loanNote = ""
+        loanError = ""
+        showLoanDialog = true
+    }
+
+    fun openPaymentDialog(customerId: Long) {
+        paymentCustomerId = customerId
+        paymentAmount = ""
+        paymentDate = LocalDate.now().format(INPUT_DATE_FORMAT)
+        paymentNote = ""
+        paymentError = ""
+        showPaymentDialog = true
+    }
+
+    fun saveLoanEntry() {
+        val customer = customers.firstOrNull { it.id == loanCustomerId }
+        val kilograms = loanKilograms.trim().replace(',', '.').toBigDecimalOrNull()
+        val date = parseDate(loanDate)
+        val rate = customer?.defaultRateCents
+        val chargeCents = rate?.let { calculateChargeCents(it, loanKilograms) }
+        if (customer == null) loanError = "Müştəri tapılmadı."
+        else if (rate == null) loanError = "Əvvəlcə bu müştəri üçün kq tarifi təyin edin."
+        else if (date == null) loanError = "Tarixi gg.aa.iiii formatında daxil edin."
+        else if (kilograms == null || kilograms.signum() <= 0 || !kilograms.toDouble().isFinite()) loanError = "Kiloqramı düzgün daxil edin."
+        else if (chargeCents == null) loanError = "Çəki və tarif əsasında məbləğ hesablana bilmədi."
+        else {
+            val entry = WorkEntry(
+                customerId = customer.id,
+                date = date.toString(),
+                kilograms = kilograms.toDouble(),
+                amountCents = chargeCents,
+                appliedRateCents = rate,
+                note = loanNote.trim(),
+                direction = "OUT"
+            )
+            scope.launch(Dispatchers.IO) { dao.addEntry(entry) }
+            showLoanDialog = false
+        }
+    }
+
+    fun savePaymentEntry() {
+        val amountCents = textToCents(paymentAmount)
+        val date = parseDate(paymentDate)
+        if (customers.none { it.id == paymentCustomerId }) paymentError = "Müştəri tapılmadı."
+        else if (date == null) paymentError = "Tarixi gg.aa.iiii formatında daxil edin."
+        else if (amountCents == null || amountCents <= 0) paymentError = "Ödənişi düzgün daxil edin."
+        else {
+            val entry = WorkEntry(
+                customerId = paymentCustomerId,
+                date = date.toString(),
+                amountCents = amountCents,
+                note = paymentNote.trim(),
+                direction = "IN"
+            )
+            scope.launch(Dispatchers.IO) { dao.addEntry(entry) }
+            showPaymentDialog = false
+        }
     }
 
     fun openExistingTransaction(entry: WorkEntry) {
@@ -240,8 +359,10 @@ private fun LaundryLedgerApp(
 
     fun saveTransaction() {
         val date = parseDate(transactionDate)
-        val amountCents = textToCents(transactionAmount)
         val kilograms = transactionKilograms.trim().replace(',', '.').toDoubleOrNull()
+        val customerRate = customers.firstOrNull { it.id == transactionCustomerId }?.defaultRateCents
+        val calculatedCents = if (transactionDirection == "OUT" && kilograms != null && customerRate != null) runCatching { BigDecimal.valueOf(customerRate).multiply(BigDecimal.valueOf(kilograms)).setScale(0, RoundingMode.HALF_UP).longValueExact() }.getOrNull() else null
+        val amountCents = calculatedCents ?: textToCents(transactionAmount)
         if (transactionCustomerId == 0L) transactionError = "Əvvəlcə müştəri seçin."
         else if (date == null) transactionError = "Tarixi gg.aa.iiii formatında daxil edin."
         else if (amountCents == null || amountCents < 0) transactionError = "Məbləği düzgün daxil edin."
@@ -254,7 +375,7 @@ private fun LaundryLedgerApp(
                 date = date.toString(),
                 kilograms = kilograms,
                 amountCents = amountCents,
-                appliedRateCents = old?.appliedRateCents,
+                appliedRateCents = if (transactionDirection == "OUT" && kilograms != null) customerRate else old?.appliedRateCents,
                 note = transactionReason.trim(),
                 direction = transactionDirection
             )
@@ -410,29 +531,65 @@ private fun LaundryLedgerApp(
                     if (visibleCustomers.isEmpty()) EmptyMessage(if (showArchived) "Arxivdə müştəri yoxdur." else "Hələ müştəri əlavə edilməyib.")
                     else LazyColumn(Modifier.weight(1f)) {
                         items(visibleCustomers, key = { it.id }) { customer ->
-                            CustomerCard(customer, onOpen = { selectedCustomerId = customer.id; page = Page.CUSTOMER_DETAIL })
+                            val customerEntries = entries.filter { it.customerId == customer.id }
+                            CustomerCard(
+                                customer = customer,
+                                amountDueCents = outstandingBalanceCents(customerEntries),
+                                onOpen = { selectedCustomerId = customer.id; page = Page.CUSTOMER_DETAIL }
+                            )
                         }
+                    }
+                }
+
+                Page.COSTS -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Xərclər", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                        Button(onClick = { openCostDialog() }) { Text("Xərc əlavə et") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Gün", "Ay").forEach { period ->
+                            FilterChip(selected = costSelectedPeriod == period, onClick = { costSelectedPeriod = period }, label = { Text(period) })
+                        }
+                    }
+                    CalendarDateField(
+                        value = formatDate(costFocusDate),
+                        onDate = { parseDate(it)?.let { date -> costFocusDate = date } }
+                    )
+                    val periodCosts = costs.filter { inPeriod(it.date, costFocusDate, costSelectedPeriod) }
+                    if (periodCosts.isEmpty()) EmptyMessage("Bu dövr üçün xərc yoxdur.")
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(periodCosts, key = { it.id }) { cost -> CostCard(cost) }
+                        item { CostTotalCard(periodCosts.sumOf { it.amountCents }) }
                     }
                 }
 
                 Page.CUSTOMER_DETAIL -> {
                     if (selectedCustomer == null) {
-                        TextButton(onClick = { page = Page.CUSTOMERS }) { Text("‹ Müştərilərə qayıt") }
+                        TextButton(onClick = { page = Page.CUSTOMERS }) {
+                            Text("‹ Geri", style = MaterialTheme.typography.bodyLarge)
+                        }
                         EmptyMessage("Müştəri tapılmadı.")
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { page = Page.CUSTOMERS }) { Text("‹ Geri") }
+                            TextButton(onClick = { page = Page.CUSTOMERS }) {
+                                Text("‹ Geri", style = MaterialTheme.typography.bodyLarge)
+                            }
                             Text(selectedCustomer.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                             TextButton(onClick = { customerBeingEdited = selectedCustomer; showCustomerDialog = true }) { Text("Düzəlt") }
                         }
                         if (selectedCustomer.contact.isNotBlank()) Text(selectedCustomer.contact, style = MaterialTheme.typography.bodyMedium)
                         if (selectedCustomer.note.isNotBlank()) Text(selectedCustomer.note, style = MaterialTheme.typography.bodyMedium)
                         val customerEntries = entries.filter { it.customerId == selectedCustomer.id }
-                        Summary(customerEntries)
+                        CustomerBalanceSummary(selectedCustomer, customerEntries)
+                        OutlinedButton(
+                            onClick = { clearCustomerHistoryId = selectedCustomer.id },
+                            enabled = customerEntries.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        ) { Text("Əməliyyat tarixçəsini təmizlə") }
                         if (!selectedCustomer.archived) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(onClick = { openNewTransaction(selectedCustomer.id, "IN") }, modifier = Modifier.weight(1f)) { Text("Mədaxil əlavə et") }
-                                OutlinedButton(onClick = { openNewTransaction(selectedCustomer.id, "OUT") }, modifier = Modifier.weight(1f)) { Text("Məxaric əlavə et") }
+                                Button(onClick = { openLoanDialog(selectedCustomer.id) }, modifier = Modifier.weight(1f)) { Text("Borc əlavə et") }
+                                OutlinedButton(onClick = { openPaymentDialog(selectedCustomer.id) }, modifier = Modifier.weight(1f)) { Text("Ödəniş qəbul et") }
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -573,6 +730,20 @@ private fun LaundryLedgerApp(
         )
     }
 
+    if (showCostDialog) {
+        CostDialog(
+            name = costName,
+            amount = costAmount,
+            date = costDate,
+            error = costError,
+            onName = { costName = it; costError = "" },
+            onAmount = { costAmount = it; costError = "" },
+            onDate = { costDate = it; costError = "" },
+            onSave = { saveCost() },
+            onDismiss = { showCostDialog = false }
+        )
+    }
+
     if (showCalculatorDatePicker) {
         val currentDate = parseDate(calculatorDate) ?: LocalDate.now()
         AlertDialog(
@@ -590,6 +761,43 @@ private fun LaundryLedgerApp(
         )
     }
 
+    if (showLoanDialog) {
+        LoanEntryDialog(
+            customer = customers.firstOrNull { it.id == loanCustomerId },
+            kilograms = loanKilograms,
+            date = loanDate,
+            note = loanNote,
+            error = loanError,
+            onKilograms = { loanKilograms = it; loanError = "" },
+            onDate = { loanDate = it; loanError = "" },
+            onNote = { loanNote = it },
+            onSave = { saveLoanEntry() },
+            onSetRate = {
+                customers.firstOrNull { it.id == loanCustomerId }?.let {
+                    customerBeingEdited = it
+                    showLoanDialog = false
+                    showCustomerDialog = true
+                }
+            },
+            onDismiss = { showLoanDialog = false }
+        )
+    }
+
+    if (showPaymentDialog) {
+        PaymentEntryDialog(
+            customer = customers.firstOrNull { it.id == paymentCustomerId },
+            amount = paymentAmount,
+            date = paymentDate,
+            note = paymentNote,
+            error = paymentError,
+            onAmount = { paymentAmount = it; paymentError = "" },
+            onDate = { paymentDate = it; paymentError = "" },
+            onNote = { paymentNote = it },
+            onSave = { savePaymentEntry() },
+            onDismiss = { showPaymentDialog = false }
+        )
+    }
+
     if (showTransactionDialog) {
         TransactionDialog(
             customers = if (transactionId == 0L) activeCustomers else customers,
@@ -598,6 +806,7 @@ private fun LaundryLedgerApp(
             direction = transactionDirection,
             amount = transactionAmount,
             kilograms = transactionKilograms,
+            customerRateCents = customers.firstOrNull { it.id == transactionCustomerId }?.defaultRateCents,
             reason = transactionReason,
             error = transactionError,
             isEditing = transactionId != 0L,
@@ -605,7 +814,15 @@ private fun LaundryLedgerApp(
             onDate = { transactionDate = it },
             onDirection = { transactionDirection = it },
             onAmount = { transactionAmount = it },
-            onKilograms = { transactionKilograms = it },
+            onKilograms = {
+                transactionKilograms = it
+                val kg = it.trim().replace(',', '.').toDoubleOrNull()
+                val rate = customers.firstOrNull { c -> c.id == transactionCustomerId }?.defaultRateCents
+                if (transactionDirection == "OUT" && kg != null && rate != null) {
+                    transactionAmount = runCatching { BigDecimal.valueOf(rate).multiply(BigDecimal.valueOf(kg)).setScale(0, RoundingMode.HALF_UP).longValueExact() }
+                        .getOrNull()?.let(::centsToText).orEmpty()
+                }
+            },
             onReason = { transactionReason = it },
             onSave = { saveTransaction() },
             onDismiss = { showTransactionDialog = false }
@@ -634,6 +851,20 @@ private fun LaundryLedgerApp(
         text = { Text("Müştəri və ona aid bütün əməliyyatlar bu cihazdan həmişəlik silinəcək. Lazımdırsa əvvəlcə ehtiyat nüsxəsi yaradın.") },
         confirmButton = { TextButton(onClick = { val id = deleteCustomerId; deleteCustomerId = 0L; scope.launch(Dispatchers.IO) { dao.permanentlyDeleteCustomer(id) }; page = Page.CUSTOMERS }) { Text("Həmişəlik sil") } },
         dismissButton = { TextButton(onClick = { deleteCustomerId = 0L }) { Text("Ləğv et") } }
+    )
+
+    if (clearCustomerHistoryId != 0L) AlertDialog(
+        onDismissRequest = { clearCustomerHistoryId = 0L },
+        title = { Text("Əməliyyat tarixçəsi təmizlənsin?") },
+        text = { Text("Bu müştərinin bütün borc, ödəniş və çəki əməliyyatları silinəcək. Müştəri məlumatları və kq tarifi saxlanılacaq.") },
+        confirmButton = {
+            TextButton(onClick = {
+                val id = clearCustomerHistoryId
+                clearCustomerHistoryId = 0L
+                scope.launch(Dispatchers.IO) { dao.deleteCustomerEntries(id) }
+            }) { Text("Tarixçəni təmizlə") }
+        },
+        dismissButton = { TextButton(onClick = { clearCustomerHistoryId = 0L }) { Text("Ləğv et") } }
     )
 }
 
@@ -712,24 +943,85 @@ private fun Summary(entries: List<WorkEntry>) {
                 Text("${formatKilograms(kilograms)} kq", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                Text("Mədaxil: ${centsToText(incoming)} ₼", style = MaterialTheme.typography.bodyMedium)
-                Text("Məxaric: ${centsToText(outgoing)} ₼", style = MaterialTheme.typography.bodyMedium)
-                Text("Balans: ${centsToText(incoming - outgoing)} ₼", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Ödəniş: ${centsToText(incoming)} ₼", style = MaterialTheme.typography.bodyMedium)
+                Text("Xidmət haqqı: ${centsToText(outgoing)} ₼", style = MaterialTheme.typography.bodyMedium)
+                Text("Qalıq: ${centsToText(outgoing - incoming)} ₼", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 @Composable
-private fun CustomerCard(customer: Customer, onOpen: () -> Unit) {
+private fun CustomerCard(customer: Customer, amountDueCents: Long, onOpen: () -> Unit) {
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onOpen)) {
         Row(Modifier.padding(14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(customer.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                 if (customer.contact.isNotBlank()) Text(customer.contact, style = MaterialTheme.typography.bodySmall)
+                customer.defaultRateCents?.let { Text("Tarif: ${centsToText(it)} ₼/kq", style = MaterialTheme.typography.bodySmall) }
+                Text(
+                    if (amountDueCents >= 0) "Ödəniləcək: ${centsToText(amountDueCents)} ₼" else "Artıq ödəniş: ${centsToText(-amountDueCents)} ₼",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (amountDueCents > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
                 if (customer.archived) Text("Arxivdədir", style = MaterialTheme.typography.labelSmall)
             }
             Text("›", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun CostCard(cost: CostEntry) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(cost.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    runCatching { formatDate(LocalDate.parse(cost.date)) }.getOrDefault(cost.date),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text("−${centsToText(cost.amountCents)} ₼", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+@Composable
+private fun CostTotalCard(totalCents: Long) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Cəmi xərclər", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("${centsToText(totalCents)} ₼", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+private fun outstandingBalanceCents(entries: List<WorkEntry>): Long =
+    entries.filter { it.direction == "OUT" }.sumOf { it.amountCents } -
+        entries.filter { it.direction == "IN" }.sumOf { it.amountCents }
+
+@Composable
+private fun CustomerBalanceSummary(customer: Customer, entries: List<WorkEntry>) {
+    val kilograms = entries.filter { it.direction == "OUT" }.sumOf { it.kilograms ?: 0.0 }
+    val charged = entries.filter { it.direction == "OUT" }.sumOf { it.amountCents }
+    val paid = entries.filter { it.direction == "IN" }.sumOf { it.amountCents }
+    Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Cəmi çəki: ${formatKilograms(kilograms)} kq")
+            customer.defaultRateCents?.let { Text("Cari tarif: ${centsToText(it)} ₼/kq") }
+            Text("Xidmət haqqı: ${centsToText(charged)} ₼")
+            Text("Ödənilib: ${centsToText(paid)} ₼")
+            Text(if (charged >= paid) "Ödəniləcək: ${centsToText(charged - paid)} ₼" else "Artıq ödəniş: ${centsToText(paid - charged)} ₼", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -748,11 +1040,11 @@ private fun TransactionCard(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     if (!customerName.isNullOrBlank()) Text(customerName, fontWeight = FontWeight.SemiBold)
-                    Text(entry.note.ifBlank { "Səbəb göstərilməyib" }, style = MaterialTheme.typography.bodyMedium)
+                    Text(entry.note.ifBlank { if (isOutgoing) "Xidmət borcu" else "Ödəniş" }, style = MaterialTheme.typography.bodyMedium)
                     val kgText = entry.kilograms?.let { " · ${formatKilograms(it)} kq" }.orEmpty()
                     Text("${runCatching { formatDate(LocalDate.parse(entry.date)) }.getOrDefault(entry.date)}$kgText", style = MaterialTheme.typography.bodySmall)
                 }
-                Text("${if (isOutgoing) "−" else "+"}${centsToText(entry.amountCents)} ₼", fontWeight = FontWeight.Bold, color = if (isOutgoing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                Text("${if (isOutgoing) "+" else "−"}${centsToText(entry.amountCents)} ₼", fontWeight = FontWeight.Bold, color = if (isOutgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 if (onLoadIntoCalculator != null) TextButton(onClick = onLoadIntoCalculator) { Text("Hesablayıcıya yüklə") }
@@ -779,8 +1071,8 @@ private fun CustomerPicker(customers: List<Customer>, selected: Long, onSelect: 
 @Composable
 private fun DirectionPicker(direction: String, onDirection: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = direction == "IN", onClick = { onDirection("IN") }, label = { Text("Mədaxil") })
-        FilterChip(selected = direction == "OUT", onClick = { onDirection("OUT") }, label = { Text("Məxaric") })
+        FilterChip(selected = direction == "OUT", onClick = { onDirection("OUT") }, label = { Text("Xidmət haqqı") })
+        FilterChip(selected = direction == "IN", onClick = { onDirection("IN") }, label = { Text("Ödəniş") })
     }
 }
 
@@ -808,10 +1100,185 @@ private fun EmptyMessage(text: String) {
 }
 
 @Composable
+private fun CalendarDateField(value: String, onDate: (String) -> Unit) {
+    var showCalendar by remember { mutableStateOf(false) }
+    OutlinedButton(
+        onClick = { showCalendar = true },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                Text("Tarix", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Text("▦", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+    if (showCalendar) {
+        val selectedDate = parseDate(value) ?: LocalDate.now()
+        AlertDialog(
+            onDismissRequest = { showCalendar = false },
+            title = { Text("Tarix seçin") },
+            text = {
+                MonthCalendar(
+                    selected = selectedDate,
+                    activityDates = emptySet(),
+                    onSelect = { pickedDate ->
+                        onDate(formatDate(pickedDate))
+                        showCalendar = false
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDate(formatDate(LocalDate.now()))
+                    showCalendar = false
+                }) { Text("Bu gün") }
+            },
+            dismissButton = { TextButton(onClick = { showCalendar = false }) { Text("Bağla") } }
+        )
+    }
+}
+
+@Composable
+private fun LoanEntryDialog(
+    customer: Customer?,
+    kilograms: String,
+    date: String,
+    note: String,
+    error: String,
+    onKilograms: (String) -> Unit,
+    onDate: (String) -> Unit,
+    onNote: (String) -> Unit,
+    onSave: () -> Unit,
+    onSetRate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val rate = customer?.defaultRateCents
+    val calculatedCents = rate?.let { calculateChargeCents(it, kilograms) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Borc əlavə et") },
+        text = {
+            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (rate == null) {
+                    Text("Borc hesablamaq üçün əvvəlcə müştərinin kq tarifini təyin edin.")
+                } else {
+                    OutlinedTextField(
+                        value = kilograms,
+                        onValueChange = onKilograms,
+                        label = { Text("Çəki (kq)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true
+                    )
+                    Text("Tarif: ${centsToText(rate)} ₼/kq", style = MaterialTheme.typography.bodySmall)
+                    calculatedCents?.let { Text("Müştərinin borcu: ${centsToText(it)} ₼", fontWeight = FontWeight.SemiBold) }
+                    CalendarDateField(value = date, onDate = onDate)
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = onNote,
+                        label = { Text("Qeyd (istəyə görə)") },
+                        minLines = 2
+                    )
+                }
+                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            if (rate == null) TextButton(onClick = onSetRate) { Text("Tarifi təyin et") }
+            else TextButton(onClick = onSave) { Text("Əlavə et") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Ləğv et") } }
+    )
+}
+
+@Composable
+private fun PaymentEntryDialog(
+    customer: Customer?,
+    amount: String,
+    date: String,
+    note: String,
+    error: String,
+    onAmount: (String) -> Unit,
+    onDate: (String) -> Unit,
+    onNote: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ödəniş qəbul et") },
+        text = {
+            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (customer != null) Text(customer.name, style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = onAmount,
+                    label = { Text("Ödəniş məbləği (₼)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                CalendarDateField(value = date, onDate = onDate)
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = onNote,
+                    label = { Text("Qeyd (istəyə görə)") },
+                    minLines = 2
+                )
+                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onSave) { Text("Ödənişi yadda saxla") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Ləğv et") } }
+    )
+}
+
+@Composable
+private fun CostDialog(
+    name: String,
+    amount: String,
+    date: String,
+    error: String,
+    onName: (String) -> Unit,
+    onAmount: (String) -> Unit,
+    onDate: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Xərc əlavə et") },
+        text = {
+            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onName,
+                    label = { Text("Xərcin adı") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = onAmount,
+                    label = { Text("Məbləğ (₼)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                CalendarDateField(value = date, onDate = onDate)
+                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onSave) { Text("Əlavə et") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Ləğv et") } }
+    )
+}
+
+@Composable
 private fun CustomerDialog(customer: Customer?, onDismiss: () -> Unit, onSave: (Customer) -> Unit) {
     var name by remember(customer) { mutableStateOf(customer?.name.orEmpty()) }
     var contact by remember(customer) { mutableStateOf(customer?.contact.orEmpty()) }
     var note by remember(customer) { mutableStateOf(customer?.note.orEmpty()) }
+    var rate by remember(customer) { mutableStateOf(customer?.defaultRateCents?.let(::centsToText).orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (customer == null) "Yeni müştəri" else "Müştəri məlumatları") },
@@ -820,12 +1287,15 @@ private fun CustomerDialog(customer: Customer?, onDismiss: () -> Unit, onSave: (
                 OutlinedTextField(name, { name = it }, label = { Text("Restoran və ya şirkətin adı") }, singleLine = true)
                 OutlinedTextField(contact, { contact = it }, label = { Text("Əlaqə məlumatı (istəyə görə)") }, singleLine = true)
                 OutlinedTextField(note, { note = it }, label = { Text("Qeyd (istəyə görə)") }, minLines = 2)
+                OutlinedTextField(rate, { rate = it }, label = { Text("Tarif (₼/kq, istəyə görə)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
             }
         },
         confirmButton = {
             TextButton(enabled = name.isNotBlank(), onClick = {
-                val updated = if (customer == null) Customer(name = name.trim(), contact = contact.trim(), note = note.trim())
-                else customer.copy(name = name.trim(), contact = contact.trim(), note = note.trim())
+                val rateCents = rate.takeIf { it.isNotBlank() }?.let(::textToCents)
+                if (rate.isNotBlank() && (rateCents == null || rateCents < 0)) return@TextButton
+                val updated = if (customer == null) Customer(name = name.trim(), contact = contact.trim(), note = note.trim(), defaultRateCents = rateCents)
+                else customer.copy(name = name.trim(), contact = contact.trim(), note = note.trim(), defaultRateCents = rateCents)
                 onSave(updated)
             }) { Text("Yadda saxla") }
         },
@@ -841,6 +1311,7 @@ private fun TransactionDialog(
     direction: String,
     amount: String,
     kilograms: String,
+    customerRateCents: Long?,
     reason: String,
     error: String,
     isEditing: Boolean,
@@ -863,6 +1334,7 @@ private fun TransactionDialog(
                 OutlinedTextField(date, onDate, label = { Text("Tarix (gg.aa.iiii)") }, singleLine = true)
                 OutlinedTextField(amount, onAmount, label = { Text("Məbləğ (₼)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                 OutlinedTextField(kilograms, onKilograms, label = { Text("Çəki (kq, istəyə görə)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                if (direction == "OUT" && customerRateCents != null) Text("Hesablanma: çəki × ${centsToText(customerRateCents)} ₼/kq", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(reason, onReason, label = { Text("Səbəb (istəyə görə)") }, minLines = 2)
                 if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
@@ -886,6 +1358,14 @@ private fun textToCents(text: String): Long? = try {
 
 private fun centsToText(cents: Long): String = BigDecimal.valueOf(cents, 2).setScale(2).toPlainString().replace('.', ',')
 
+private fun calculateChargeCents(rateCentsPerKg: Long, kilogramsText: String): Long? {
+    return try {
+        val kilograms = kilogramsText.trim().replace(',', '.').toBigDecimalOrNull() ?: return null
+        if (kilograms.signum() <= 0) return null
+        BigDecimal.valueOf(rateCentsPerKg).multiply(kilograms).setScale(0, RoundingMode.HALF_UP).longValueExact()
+    } catch (_: ArithmeticException) { null }
+}
+
 private fun formatKilograms(kilograms: Double): String = BigDecimal.valueOf(kilograms)
     .setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString().replace('.', ',')
 
@@ -902,9 +1382,9 @@ private fun inPeriod(rawDate: String, focus: LocalDate, period: String): Boolean
     }
 }
 
-private fun makeBackup(customers: List<Customer>, entries: List<WorkEntry>): String = JSONObject().apply {
+private fun makeBackup(customers: List<Customer>, entries: List<WorkEntry>, costs: List<CostEntry>): String = JSONObject().apply {
     put("format", "laundry-ledger-backup")
-    put("version", 2)
+    put("version", 3)
     put("settings", JSONObject().put("language", "az"))
     put("customers", JSONArray().apply {
         customers.forEach { customer -> put(JSONObject().apply {
@@ -928,13 +1408,21 @@ private fun makeBackup(customers: List<Customer>, entries: List<WorkEntry>): Str
             put("direction", entry.direction)
         }) }
     })
+    put("costs", JSONArray().apply {
+        costs.forEach { cost -> put(JSONObject().apply {
+            put("id", cost.id)
+            put("name", cost.name)
+            put("date", cost.date)
+            put("amountCents", cost.amountCents)
+        }) }
+    })
 }.toString(2)
 
-private fun parseBackup(raw: String): Pair<List<Customer>, List<WorkEntry>> {
+private fun parseBackup(raw: String): Triple<List<Customer>, List<WorkEntry>, List<CostEntry>> {
     val json = JSONObject(raw)
     require(json.getString("format") == "laundry-ledger-backup") { "Ehtiyat nüsxəsinin formatı tanınmadı" }
     val version = json.getInt("version")
-    require(version in 1..2) { "Ehtiyat nüsxəsinin versiyası dəstəklənmir" }
+    require(version in 1..3) { "Ehtiyat nüsxəsinin versiyası dəstəklənmir" }
     val customers = buildList {
         val array = json.getJSONArray("customers")
         for (index in 0 until array.length()) {
@@ -970,7 +1458,25 @@ private fun parseBackup(raw: String): Pair<List<Customer>, List<WorkEntry>> {
             ))
         }
     }
-    return customers to entries
+    val costs = buildList {
+        if (version >= 3) {
+            val array = json.getJSONArray("costs")
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                val name = item.getString("name").trim()
+                val amountCents = item.getLong("amountCents")
+                require(name.isNotEmpty()) { "Xərcin adı boş ola bilməz" }
+                require(amountCents > 0) { "Xərc məbləği sıfırdan böyük olmalıdır" }
+                add(CostEntry(
+                    id = item.getLong("id"),
+                    name = name,
+                    date = LocalDate.parse(item.getString("date")).toString(),
+                    amountCents = amountCents
+                ))
+            }
+        }
+    }
+    return Triple(customers, entries, costs)
 }
 
 

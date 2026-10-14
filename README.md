@@ -1,6 +1,6 @@
 # Camaşırxana dəftəri
 
-Restoran və şirkət müştərilərini, camaşırxana çəkisini, mədaxil/məxaric əməliyyatlarını, təqvim cəmlərini və hesablayıcı nəticələrini qeyd edən şəxsi Android tətbiqi. Tətbiq internetsiz işləyir və məlumatları cihazda saxlayır.
+Restoran və şirkət müştərilərini, camaşırxana çəkisini, borc və ödəniş əməliyyatlarını, ayrıca xərcləri, təqvim cəmlərini və hesablayıcı nəticələrini qeyd edən şəxsi Android tətbiqi. Tətbiq internetsiz işləyir və məlumatları cihazda saxlayır.
 
 ## Yığma və quraşdırma
 
