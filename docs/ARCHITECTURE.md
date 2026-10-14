@@ -14,15 +14,15 @@ Bu tətbiq bir nəfərin istifadə etməsi üçün hazırlanıb və internetsiz 
 ## Əsas məlumatlar
 
 - **Müştəri:** sabit ID, adı, istəyə görə əlaqə məlumatı və qeyd, kq üçün dəyişdirilə bilən tarif, aktiv/arxiv vəziyyəti.
-- **Əməliyyat:** sabit ID, müştəri ID-si, yerli təqvim tarixi (`yyyy-MM-dd`), xidmət haqqı/ödəniş istiqaməti, qəpiklə məbləğ, tətbiq olunmuş tarif, istəyə görə səbəb və kiloqram.
+- **Əməliyyat:** sabit ID, müştəri ID-si, yerli təqvim tarixi (`yyyy-MM-dd`), xidmət haqqı/ödəniş istiqaməti, qəpiklə məbləğ, tətbiq olunmuş tarif, istəyə görə səbəb, kiloqram və ya hər pərdə işi üçün ayrıca metr və metr tarifi.
 - **Xərc:** sabit ID, adı, yerli təqvim tarixi (`yyyy-MM-dd`) və qəpiklə məbləğ.
 - **Tətbiq parametrləri:** Azərbaycan dili və ehtiyat nüsxəsinin format versiyası.
 
-Hər müştərinin bir neçə əməliyyatı ola bilər. Məbləğ həmişə qəpiklə qeyri-mənfi tam ədəd kimi saxlanır. Xidmət haqqı əməliyyatında kiloqram və müştərinin tarifi varsa, məbləğ kiloqram × tarif kimi hesablanır və həmin əməliyyatda tarifin surəti saxlanır. Müştərinin ödəniləcək qalığı xidmət haqlarının cəmindən ödənişlərin cəminin çıxılması ilə tapılır. Tətbiqdə ümumi mədaxil/məxaric cəmləri saxlanılır.
+Hər müştərinin bir neçə əməliyyatı ola bilər. Məbləğ həmişə qəpiklə qeyri-mənfi tam ədəd kimi saxlanır. Xidmət haqqı əməliyyatında kiloqram və müştərinin tarifi varsa, məbləğ kiloqram × tarif kimi hesablanır və həmin əməliyyatda tarifin surəti saxlanır. Pərdə borcunda metr və hər qeyd üçün ayrıca daxil edilən metr tarifi vurulur; tarif müştərinin daimi tarifini dəyişmir və əməliyyatda saxlanır. Müştərinin ödəniləcək qalığı xidmət haqlarının cəmindən ödənişlərin cəminin çıxılması ilə tapılır. Tətbiqdə ümumi mədaxil/məxaric cəmləri saxlanılır.
 
 ## Cəmlər
 
-Əməliyyatlar və xərclər cihazın yerli təqvim tarixinə görə qruplaşdırılır. Həftə yerli həftənin ilk günündən başlayır. İcmal və təqvim seçilən gün, həftə və ay üçün kiloqramı, mədaxili, məxarici və balansı göstərir. Xərclər bölməsi seçilən gün və ya ayın xərc qeydlərini və həmin dövrün cəmini göstərir. Müştəri siyahısı hər müştərinin cari ödəniləcək qalığını göstərir. Müştəri səhifəsindən əməliyyat tarixçəsini ayrıca təsdiqlə silmək olar; bu, müştəri məlumatlarını və tarifini saxlayır. Müştərini arxivləmək tarixçəni saxlayır. Daimi silmə ayrıca təsdiq olunur və həmin müştərinin əməliyyatlarını da silir.
+Əməliyyatlar və xərclər cihazın yerli təqvim tarixinə görə qruplaşdırılır. Həftə yerli həftənin ilk günündən başlayır. İcmal seçilən gün və ayı, yaxud bütün tarixçəni; təqvim isə seçilən gün, həftə və ayı göstərir. Dövr cəmlərinə xidmət haqqı, ödəniş, qalıq, kq və pərdə metrləri daxildir. Qalıq xidmət haqlarının cəmindən ödənişlərin cəminin çıxılması ilə hesablanır. Xərclər bölməsi seçilən gün və ya ayın xərc qeydlərini və həmin dövrün cəmini göstərir. Müştəri siyahısı hər müştərinin cari ödəniləcək qalığını göstərir. Müştəri səhifəsindən əməliyyat tarixçəsini ayrıca təsdiqlə silmək olar; bu, müştəri məlumatlarını və tarifini saxlayır. Müştərini arxivləmək tarixçəni saxlayır. Daimi silmə ayrıca təsdiq olunur və həmin müştərinin əməliyyatlarını da silir.
 
 ## Naviqasiya və asılılıqlar
 

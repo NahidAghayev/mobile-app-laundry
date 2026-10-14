@@ -61,7 +61,9 @@ data class WorkEntry(
     val amountCents: Long,
     val appliedRateCents: Long? = null,
     val note: String = "",
-    @ColumnInfo(defaultValue = "'IN'") val direction: String = "IN"
+    @ColumnInfo(defaultValue = "'IN'") val direction: String = "IN",
+    val meters: Double? = null,
+    val appliedMeterRateCents: Long? = null
 )
 
 @Entity(tableName = "costs", indices = [Index("date")])
@@ -106,7 +108,7 @@ interface LedgerDao {
     }
 }
 
-@Database(entities = [Customer::class, WorkEntry::class, CostEntry::class], version = 3, exportSchema = true)
+@Database(entities = [Customer::class, WorkEntry::class, CostEntry::class], version = 4, exportSchema = true)
 abstract class LedgerDatabase : RoomDatabase() {
     abstract fun dao(): LedgerDao
     companion object {
@@ -123,11 +125,17 @@ abstract class LedgerDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_costs_date` ON `costs` (`date`)")
             }
         }
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `work_entries` ADD COLUMN `meters` REAL")
+                db.execSQL("ALTER TABLE `work_entries` ADD COLUMN `appliedMeterRateCents` INTEGER")
+            }
+        }
 
         @Volatile private var instance: LedgerDatabase? = null
         fun get(context: android.content.Context) = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context, LedgerDatabase::class.java, "laundry-ledger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
     }
 }
@@ -201,6 +209,7 @@ private fun LaundryLedgerApp(
     val scope = rememberCoroutineScope()
     var page by remember { mutableStateOf(Page.OVERVIEW) }
     var selectedPeriod by remember { mutableStateOf("Həftə") }
+    var overviewPeriod by remember { mutableStateOf("Hamısı") }
     var costSelectedPeriod by remember { mutableStateOf("Ay") }
     var costFocusDate by remember { mutableStateOf(LocalDate.now()) }
     var focusDate by remember { mutableStateOf(LocalDate.now()) }
@@ -239,6 +248,13 @@ private fun LaundryLedgerApp(
     var paymentDate by remember { mutableStateOf(LocalDate.now().format(INPUT_DATE_FORMAT)) }
     var paymentNote by remember { mutableStateOf("") }
     var paymentError by remember { mutableStateOf("") }
+    var showPerdeDialog by remember { mutableStateOf(false) }
+    var perdeCustomerId by remember { mutableLongStateOf(0L) }
+    var perdeMeters by remember { mutableStateOf("") }
+    var perdeRate by remember { mutableStateOf("") }
+    var perdeDate by remember { mutableStateOf(LocalDate.now().format(INPUT_DATE_FORMAT)) }
+    var perdeNote by remember { mutableStateOf("") }
+    var perdeError by remember { mutableStateOf("") }
     var transactionId by remember { mutableLongStateOf(0L) }
     var transactionCustomerId by remember { mutableLongStateOf(0L) }
     var transactionDate by remember { mutableStateOf(LocalDate.now().format(INPUT_DATE_FORMAT)) }
@@ -300,6 +316,16 @@ private fun LaundryLedgerApp(
         showPaymentDialog = true
     }
 
+    fun openPerdeDialog(customerId: Long) {
+        perdeCustomerId = customerId
+        perdeMeters = ""
+        perdeRate = ""
+        perdeDate = LocalDate.now().format(INPUT_DATE_FORMAT)
+        perdeNote = ""
+        perdeError = ""
+        showPerdeDialog = true
+    }
+
     fun saveLoanEntry() {
         val customer = customers.firstOrNull { it.id == loanCustomerId }
         val kilograms = loanKilograms.trim().replace(',', '.').toBigDecimalOrNull()
@@ -345,6 +371,32 @@ private fun LaundryLedgerApp(
         }
     }
 
+    fun savePerdeEntry() {
+        val customer = customers.firstOrNull { it.id == perdeCustomerId }
+        val meters = perdeMeters.trim().replace(',', '.').toBigDecimalOrNull()
+        val rateCents = textToCents(perdeRate)
+        val date = parseDate(perdeDate)
+        val chargeCents = rateCents?.let { calculateChargeCents(it, perdeMeters) }
+        if (customer == null) perdeError = "Müştəri tapılmadı."
+        else if (meters == null || meters.signum() <= 0 || !meters.toDouble().isFinite()) perdeError = "Uzunluğu metr ilə düzgün daxil edin."
+        else if (rateCents == null || rateCents <= 0) perdeError = "Bu pərdə üçün tarifi düzgün daxil edin."
+        else if (date == null) perdeError = "Tarixi düzgün seçin."
+        else if (chargeCents == null || chargeCents <= 0) perdeError = "Uzunluq və tarif əsasında məbləğ hesablana bilmədi."
+        else {
+            val entry = WorkEntry(
+                customerId = customer.id,
+                date = date.toString(),
+                amountCents = chargeCents,
+                note = perdeNote.trim(),
+                direction = "OUT",
+                meters = meters.toDouble(),
+                appliedMeterRateCents = rateCents
+            )
+            scope.launch(Dispatchers.IO) { dao.addEntry(entry) }
+            showPerdeDialog = false
+        }
+    }
+
     fun openExistingTransaction(entry: WorkEntry) {
         transactionId = entry.id
         transactionCustomerId = entry.customerId
@@ -377,7 +429,9 @@ private fun LaundryLedgerApp(
                 amountCents = amountCents,
                 appliedRateCents = if (transactionDirection == "OUT" && kilograms != null) customerRate else old?.appliedRateCents,
                 note = transactionReason.trim(),
-                direction = transactionDirection
+                direction = transactionDirection,
+                meters = if (transactionDirection == "OUT") old?.meters else null,
+                appliedMeterRateCents = if (transactionDirection == "OUT") old?.appliedMeterRateCents else null
             )
             scope.launch(Dispatchers.IO) {
                 if (entry.id == 0L) dao.addEntry(entry) else dao.updateEntry(entry)
@@ -478,7 +532,9 @@ private fun LaundryLedgerApp(
             amountCents = amountCents,
             appliedRateCents = source?.appliedRateCents,
             note = calculatorReason.trim(),
-            direction = calculatorDirection
+            direction = calculatorDirection,
+            meters = if (calculatorDirection == "OUT") source?.meters else null,
+            appliedMeterRateCents = if (calculatorDirection == "OUT") source?.appliedMeterRateCents else null
         )
         scope.launch(Dispatchers.IO) {
             if (entry.id == 0L) dao.addEntry(entry) else dao.updateEntry(entry)
@@ -505,17 +561,22 @@ private fun LaundryLedgerApp(
             when (page) {
                 Page.OVERVIEW -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("Gün", "Həftə", "Ay").forEach { period ->
-                            FilterChip(selected = selectedPeriod == period, onClick = { selectedPeriod = period }, label = { Text(period) })
+                        listOf("Gün", "Ay", "Hamısı").forEach { period ->
+                            FilterChip(selected = overviewPeriod == period, onClick = { overviewPeriod = period }, label = { Text(period) })
                         }
                     }
-                    PeriodPicker(focusDate, { focusDate = it })
-                    val subset = entries.filter { inPeriod(it.date, focusDate, selectedPeriod) }
+                    if (overviewPeriod != "Hamısı") {
+                        CalendarDateField(
+                            value = formatDate(focusDate),
+                            onDate = { parseDate(it)?.let { date -> focusDate = date } }
+                        )
+                    }
+                    val subset = if (overviewPeriod == "Hamısı") entries else entries.filter { inPeriod(it.date, focusDate, overviewPeriod) }
                     Summary(subset)
-                    Text("Son əməliyyatlar", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
-                    if (subset.isEmpty()) EmptyMessage("Bu dövr üçün əməliyyat yoxdur.")
+                    Text(if (overviewPeriod == "Hamısı") "Bütün əməliyyatlar" else "Əməliyyatlar", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                    if (subset.isEmpty()) EmptyMessage(if (overviewPeriod == "Hamısı") "Hələ əməliyyat yoxdur." else "Bu dövr üçün əməliyyat yoxdur.")
                     else LazyColumn(Modifier.weight(1f)) {
-                        items(subset.take(30), key = { it.id }) { entry ->
+                        items(subset, key = { it.id }) { entry ->
                             TransactionCard(entry, customerName(entry.customerId), onClick = { openExistingTransaction(entry) }, onDelete = { deleteEntryId = entry.id })
                         }
                     }
@@ -587,9 +648,13 @@ private fun LaundryLedgerApp(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                         ) { Text("Əməliyyat tarixçəsini təmizlə") }
                         if (!selectedCustomer.archived) {
+                            Text("Yeni əməliyyat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                 Button(onClick = { openLoanDialog(selectedCustomer.id) }, modifier = Modifier.weight(1f)) { Text("Borc əlavə et") }
                                 OutlinedButton(onClick = { openPaymentDialog(selectedCustomer.id) }, modifier = Modifier.weight(1f)) { Text("Ödəniş qəbul et") }
+                            }
+                            Button(onClick = { openPerdeDialog(selectedCustomer.id) }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Pərdə xidməti əlavə et")
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -798,6 +863,23 @@ private fun LaundryLedgerApp(
         )
     }
 
+    if (showPerdeDialog) {
+        PerdeLoanDialog(
+            customer = customers.firstOrNull { it.id == perdeCustomerId },
+            meters = perdeMeters,
+            rate = perdeRate,
+            date = perdeDate,
+            note = perdeNote,
+            error = perdeError,
+            onMeters = { perdeMeters = it; perdeError = "" },
+            onRate = { perdeRate = it; perdeError = "" },
+            onDate = { perdeDate = it; perdeError = "" },
+            onNote = { perdeNote = it },
+            onSave = { savePerdeEntry() },
+            onDismiss = { showPerdeDialog = false }
+        )
+    }
+
     if (showTransactionDialog) {
         TransactionDialog(
             customers = if (transactionId == 0L) activeCustomers else customers,
@@ -933,22 +1015,47 @@ private fun MonthCalendar(selected: LocalDate, activityDates: Set<String>, onSel
 
 @Composable
 private fun Summary(entries: List<WorkEntry>) {
-    val kilograms = entries.sumOf { it.kilograms ?: 0.0 }
-    val incoming = entries.filter { it.direction == "IN" }.sumOf { it.amountCents }
-    val outgoing = entries.filter { it.direction == "OUT" }.sumOf { it.amountCents }
+    val totals = calculatePeriodTotals(entries)
     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Row(Modifier.padding(14.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(0.8f)) {
+            Column(Modifier.weight(0.8f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Çəki", style = MaterialTheme.typography.labelMedium)
-                Text("${formatKilograms(kilograms)} kq", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("${formatKilograms(totals.kilograms)} kq", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (totals.meters > 0) {
+                    Text("Pərdə", style = MaterialTheme.typography.labelMedium)
+                    Text("${formatKilograms(totals.meters)} m", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                Text("Ödəniş: ${centsToText(incoming)} ₼", style = MaterialTheme.typography.bodyMedium)
-                Text("Xidmət haqqı: ${centsToText(outgoing)} ₼", style = MaterialTheme.typography.bodyMedium)
-                Text("Qalıq: ${centsToText(outgoing - incoming)} ₼", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Ödəniş: ${centsToText(totals.paymentsCents)} ₼", style = MaterialTheme.typography.bodyMedium)
+                Text("Xidmət haqqı: ${centsToText(totals.serviceFeesCents)} ₼", style = MaterialTheme.typography.bodyMedium)
+                val balance = outstandingBalanceCents(entries)
+                Text(
+                    if (balance >= 0) "Qalıq: ${centsToText(balance)} ₼" else "Artıq ödəniş: ${centsToText(-balance)} ₼",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (balance > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
+}
+
+private data class PeriodTotals(
+    val kilograms: Double,
+    val meters: Double,
+    val paymentsCents: Long,
+    val serviceFeesCents: Long
+)
+
+private fun calculatePeriodTotals(entries: List<WorkEntry>): PeriodTotals {
+    val serviceEntries = entries.filter { it.direction == "OUT" }
+    return PeriodTotals(
+        kilograms = serviceEntries.sumOf { it.kilograms ?: 0.0 },
+        meters = serviceEntries.sumOf { it.meters ?: 0.0 },
+        paymentsCents = entries.filter { it.direction == "IN" }.sumOf { it.amountCents },
+        serviceFeesCents = serviceEntries.sumOf { it.amountCents }
+    )
 }
 
 @Composable
@@ -1013,15 +1120,18 @@ private fun outstandingBalanceCents(entries: List<WorkEntry>): Long =
 @Composable
 private fun CustomerBalanceSummary(customer: Customer, entries: List<WorkEntry>) {
     val kilograms = entries.filter { it.direction == "OUT" }.sumOf { it.kilograms ?: 0.0 }
+    val meters = entries.filter { it.direction == "OUT" }.sumOf { it.meters ?: 0.0 }
     val charged = entries.filter { it.direction == "OUT" }.sumOf { it.amountCents }
     val paid = entries.filter { it.direction == "IN" }.sumOf { it.amountCents }
+    val balance = outstandingBalanceCents(entries)
     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Cəmi çəki: ${formatKilograms(kilograms)} kq")
+            if (meters > 0) Text("Pərdə uzunluğu: ${formatKilograms(meters)} m")
             customer.defaultRateCents?.let { Text("Cari tarif: ${centsToText(it)} ₼/kq") }
             Text("Xidmət haqqı: ${centsToText(charged)} ₼")
             Text("Ödənilib: ${centsToText(paid)} ₼")
-            Text(if (charged >= paid) "Ödəniləcək: ${centsToText(charged - paid)} ₼" else "Artıq ödəniş: ${centsToText(paid - charged)} ₼", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Text(if (balance >= 0) "Ödəniləcək: ${centsToText(balance)} ₼" else "Artıq ödəniş: ${centsToText(-balance)} ₼", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -1040,9 +1150,13 @@ private fun TransactionCard(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     if (!customerName.isNullOrBlank()) Text(customerName, fontWeight = FontWeight.SemiBold)
-                    Text(entry.note.ifBlank { if (isOutgoing) "Xidmət borcu" else "Ödəniş" }, style = MaterialTheme.typography.bodyMedium)
-                    val kgText = entry.kilograms?.let { " · ${formatKilograms(it)} kq" }.orEmpty()
-                    Text("${runCatching { formatDate(LocalDate.parse(entry.date)) }.getOrDefault(entry.date)}$kgText", style = MaterialTheme.typography.bodySmall)
+                    Text(entry.note.ifBlank { if (entry.meters != null) "Pərdə borcu" else if (isOutgoing) "Xidmət borcu" else "Ödəniş" }, style = MaterialTheme.typography.bodyMedium)
+                    val details = when {
+                        entry.meters != null -> " · ${formatKilograms(entry.meters)} m × ${entry.appliedMeterRateCents?.let(::centsToText) ?: "—"} ₼/m"
+                        entry.kilograms != null -> " · ${formatKilograms(entry.kilograms)} kq"
+                        else -> ""
+                    }
+                    Text("${runCatching { formatDate(LocalDate.parse(entry.date)) }.getOrDefault(entry.date)}$details", style = MaterialTheme.typography.bodySmall)
                 }
                 Text("${if (isOutgoing) "+" else "−"}${centsToText(entry.amountCents)} ₼", fontWeight = FontWeight.Bold, color = if (isOutgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             }
@@ -1235,6 +1349,79 @@ private fun PaymentEntryDialog(
 }
 
 @Composable
+private fun PerdeLoanDialog(
+    customer: Customer?,
+    meters: String,
+    rate: String,
+    date: String,
+    note: String,
+    error: String,
+    onMeters: (String) -> Unit,
+    onRate: (String) -> Unit,
+    onDate: (String) -> Unit,
+    onNote: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val rateCents = textToCents(rate)
+    val totalCents = rateCents?.let { calculateChargeCents(it, meters) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Pərdə xidməti", style = MaterialTheme.typography.titleLarge)
+                customer?.let { Text(it.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        },
+        text = {
+            Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = meters,
+                    onValueChange = onMeters,
+                    label = { Text("Uzunluq (m)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = rate,
+                    onValueChange = onRate,
+                    label = { Text("Bu pərdə üçün tarif (₼/m)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                if (totalCents != null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("HESABLAMA", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("${meters.trim()} m × ${rate.trim()} ₼/m", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Müştərinin borcu", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("${centsToText(totalCents)} ₼", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                        }
+                    }
+                } else {
+                    Text("Tarif yalnız bu pərdə qeydi üçün tətbiq olunur.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                CalendarDateField(value = date, onDate = onDate)
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = onNote,
+                    label = { Text("Qeyd (istəyə görə)") },
+                    minLines = 2
+                )
+                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onSave) { Text("Əlavə et") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Ləğv et") } }
+    )
+}
+
+@Composable
 private fun CostDialog(
     name: String,
     amount: String,
@@ -1372,6 +1559,7 @@ private fun formatKilograms(kilograms: Double): String = BigDecimal.valueOf(kilo
 private fun inPeriod(rawDate: String, focus: LocalDate, period: String): Boolean {
     val date = runCatching { LocalDate.parse(rawDate) }.getOrNull() ?: return false
     return when (period) {
+        "Hamısı" -> true
         "Gün" -> date == focus
         "Həftə" -> {
             val firstDay = WeekFields.of(AZ_LOCALE).firstDayOfWeek
@@ -1384,7 +1572,7 @@ private fun inPeriod(rawDate: String, focus: LocalDate, period: String): Boolean
 
 private fun makeBackup(customers: List<Customer>, entries: List<WorkEntry>, costs: List<CostEntry>): String = JSONObject().apply {
     put("format", "laundry-ledger-backup")
-    put("version", 3)
+    put("version", 4)
     put("settings", JSONObject().put("language", "az"))
     put("customers", JSONArray().apply {
         customers.forEach { customer -> put(JSONObject().apply {
@@ -1404,6 +1592,8 @@ private fun makeBackup(customers: List<Customer>, entries: List<WorkEntry>, cost
             if (entry.kilograms != null) put("kilograms", entry.kilograms) else put("kilograms", JSONObject.NULL)
             put("amountCents", entry.amountCents)
             if (entry.appliedRateCents != null) put("appliedRateCents", entry.appliedRateCents) else put("appliedRateCents", JSONObject.NULL)
+            if (entry.meters != null) put("meters", entry.meters) else put("meters", JSONObject.NULL)
+            if (entry.appliedMeterRateCents != null) put("appliedMeterRateCents", entry.appliedMeterRateCents) else put("appliedMeterRateCents", JSONObject.NULL)
             put("note", entry.note)
             put("direction", entry.direction)
         }) }
@@ -1422,7 +1612,7 @@ private fun parseBackup(raw: String): Triple<List<Customer>, List<WorkEntry>, Li
     val json = JSONObject(raw)
     require(json.getString("format") == "laundry-ledger-backup") { "Ehtiyat nüsxəsinin formatı tanınmadı" }
     val version = json.getInt("version")
-    require(version in 1..3) { "Ehtiyat nüsxəsinin versiyası dəstəklənmir" }
+    require(version in 1..4) { "Ehtiyat nüsxəsinin versiyası dəstəklənmir" }
     val customers = buildList {
         val array = json.getJSONArray("customers")
         for (index in 0 until array.length()) {
@@ -1446,6 +1636,10 @@ private fun parseBackup(raw: String): Triple<List<Customer>, List<WorkEntry>, Li
             require(customerId in customerIds) { "Əməliyyat mövcud olmayan müştəriyə aiddir" }
             val direction = item.optString("direction", "IN")
             require(direction == "IN" || direction == "OUT") { "Əməliyyatın istiqaməti düzgün deyil" }
+            val meters = if (version >= 4 && !item.isNull("meters")) item.getDouble("meters") else null
+            val meterRateCents = if (version >= 4 && !item.isNull("appliedMeterRateCents")) item.getLong("appliedMeterRateCents") else null
+            require((meters == null) == (meterRateCents == null)) { "Pərdə ölçüsü və tarifi birlikdə saxlanmalıdır" }
+            require(meters == null || (meters > 0 && meters.isFinite() && meterRateCents != null && meterRateCents > 0)) { "Pərdə ölçüsü və tarifi düzgün deyil" }
             add(WorkEntry(
                 id = item.getLong("id"),
                 customerId = customerId,
@@ -1454,7 +1648,9 @@ private fun parseBackup(raw: String): Triple<List<Customer>, List<WorkEntry>, Li
                 amountCents = item.getLong("amountCents").let { if (it < 0) -it else it },
                 appliedRateCents = if (item.isNull("appliedRateCents")) null else item.optLong("appliedRateCents"),
                 note = item.optString("note"),
-                direction = if (item.getLong("amountCents") < 0) "OUT" else direction
+                direction = if (item.getLong("amountCents") < 0) "OUT" else direction,
+                meters = meters,
+                appliedMeterRateCents = meterRateCents
             ))
         }
     }
