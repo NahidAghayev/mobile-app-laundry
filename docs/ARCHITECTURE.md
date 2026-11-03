@@ -1,29 +1,31 @@
-# Arxitektura
+# Architecture
 
-## Ümumi baxış
+> **Language notice:** The application itself (all user-facing text) is in Azerbaijani. This documentation is written in English.
 
-Bu tətbiq bir nəfərin istifadə etməsi üçün hazırlanıb və internetsiz işləyir. Bütün biznes məlumatları telefonda Room verilənlər bazasında qalır. Hesab, server, analitika və şəbəkə bağlantısı yoxdur.
+## Overview
 
-## Tətbiq qatları
+This application is designed for use by one person and works offline. All business data is stored in the Room database on the phone. There is no account, server, analytics, or network connection.
 
-1. **Compose interfeysi** — icmal, müştərilər, müştəri əməliyyatları, ayrıca xərclər bölməsi, təqvim, adi hesablayıcı və parametrlər.
-2. **Sahə qaydaları** — AZN/qəpik çevirməsi, hesablayıcı hesablamaları, gün/həftə/ay sərhədləri və ehtiyat nüsxəsinin yoxlanması.
-3. **Məlumatların saxlanması** — Room müştəriləri, tarixli əməliyyatları, ayrıca xərcləri və parametrləri saxlayır. Sxem dəyişiklikləri məlumatı qoruyan miqrasiya ilə edilməlidir.
-4. **Ehtiyat nüsxəsi** — Android Storage Access Framework vasitəsilə istifadəçinin seçdiyi fayla versiyalı JSON yazılır və fayldan bərpa olunur.
+## Application layers
 
-## Əsas məlumatlar
+1. **Compose UI** — summary, customers, customer operations, separate expenses section, calendar, simple calculator, and settings.
+2. **Business rules** — AZN/qəpik conversion, calculator calculations, day/week/month boundaries, and backup validation.
+3. **Data storage** — Room stores customers, dated operations, separate expenses, and settings. Schema changes must be done with migrations that preserve data.
+4. **Backup** — Versioned JSON is written to the file selected by the user via Android Storage Access Framework, and restored from the file.
 
-- **Müştəri:** sabit ID, adı, istəyə görə əlaqə məlumatı və qeyd, kq üçün dəyişdirilə bilən tarif, aktiv/arxiv vəziyyəti.
-- **Əməliyyat:** sabit ID, müştəri ID-si, yerli təqvim tarixi (`yyyy-MM-dd`), xidmət haqqı/ödəniş istiqaməti, qəpiklə məbləğ, tətbiq olunmuş tarif, istəyə görə səbəb, kiloqram və ya hər pərdə işi üçün ayrıca metr və metr tarifi.
-- **Xərc:** sabit ID, adı, yerli təqvim tarixi (`yyyy-MM-dd`) və qəpiklə məbləğ.
-- **Tətbiq parametrləri:** Azərbaycan dili və ehtiyat nüsxəsinin format versiyası.
+## Core data
 
-Hər müştərinin bir neçə əməliyyatı ola bilər. Məbləğ həmişə qəpiklə qeyri-mənfi tam ədəd kimi saxlanır. Xidmət haqqı əməliyyatında kiloqram və müştərinin tarifi varsa, məbləğ kiloqram × tarif kimi hesablanır və həmin əməliyyatda tarifin surəti saxlanır. Pərdə borcunda metr və hər qeyd üçün ayrıca daxil edilən metr tarifi vurulur; tarif müştərinin daimi tarifini dəyişmir və əməliyyatda saxlanır. Müştərinin ödəniləcək qalığı xidmət haqlarının cəmindən ödənişlərin cəminin çıxılması ilə tapılır. Tətbiqdə ümumi mədaxil/məxaric cəmləri saxlanılır.
+- **Customer:** fixed ID, name, optional contact information and note, changeable rate for kg, active/archived status.
+- **Operation:** fixed ID, customer ID, local calendar date (`yyyy-MM-dd`), service charge/payment direction, amount in qəpik, applied rate, optional reason, kilograms, or separate meters and meter rate for each curtain job.
+- **Expense:** fixed ID, name, local calendar date (`yyyy-MM-dd`), amount in qəpik.
+- **Application settings:** Azerbaijani language and backup format version.
 
-## Cəmlər
+Each customer can have multiple operations. Amount is always stored as a non-negative integer in qəpik. In a service charge operation, if kilograms and the customer's rate exist, the amount is calculated as kilograms × rate and the rate amount is stored in that operation. In curtain debt, meter and separately entered meter rate for each record are multiplied; the rate does not change the customer's permanent rate and is stored in the operation. The customer's outstanding balance is found by subtracting the sum of payments from the sum of service charges. Total income/expense sums are stored in the application.
 
-Əməliyyatlar və xərclər cihazın yerli təqvim tarixinə görə qruplaşdırılır. Həftə yerli həftənin ilk günündən başlayır. İcmal seçilən gün və ayı, yaxud bütün tarixçəni; təqvim isə seçilən gün, həftə və ayı göstərir. Dövr cəmlərinə xidmət haqqı, ödəniş, qalıq, kq və pərdə metrləri daxildir. Qalıq xidmət haqlarının cəmindən ödənişlərin cəminin çıxılması ilə hesablanır. Xərclər bölməsi seçilən gün və ya ayın xərc qeydlərini və həmin dövrün cəmini göstərir. Müştəri siyahısı hər müştərinin cari ödəniləcək qalığını göstərir. Müştəri səhifəsindən əməliyyat tarixçəsini ayrıca təsdiqlə silmək olar; bu, müştəri məlumatlarını və tarifini saxlayır. Müştərini arxivləmək tarixçəni saxlayır. Daimi silmə ayrıca təsdiq olunur və həmin müştərinin əməliyyatlarını da silir.
+## Totals
 
-## Naviqasiya və asılılıqlar
+Operations and expenses are grouped according to the device's local calendar date. Week starts from the first day of the local week. Summary shows the selected day and month, or the entire history; calendar shows the selected day, week, and month. Period totals include service charge, payment, balance, kg, and curtain meters. Balance is calculated by subtracting the sum of payments from the sum of service charges. The Expenses section shows expense records for the selected day or month and the total for that period. The customer list shows each customer's current outstanding balance. From the customer page, operation history can be deleted separately with confirmation; this keeps the customer's data and rate. Archiving the customer preserves history. Permanent deletion is confirmed separately and deletes that customer's operations too.
 
-Alt menyuda İcmal, Müştərilər, Xərclər, Təqvim, Hesablayıcı və Parametrlər var. Müştərinin səhifəsində əməliyyat jurnalı yerləşir. Şəbəkə icazəsi və fon xidməti tələb olunmur. Layihə Android Studio-da asan yığılmalı və birbaşa quraşdırılan APK yaratmalıdır.
+## Navigation and dependencies
+
+The bottom menu has Summary, Customers, Expenses, Calendar, Calculator, and Settings. On the customer page, the operation journal is located. Network permission and background service are not required. The project should build easily in Android Studio and create a directly installable APK.

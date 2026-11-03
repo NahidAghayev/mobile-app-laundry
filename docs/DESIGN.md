@@ -1,32 +1,33 @@
-# Məhsul və interfeys dizaynı
+# Product and UI Design
 
-## Məqsəd
+> **Language notice:** The application itself (all user-facing text) is in Azerbaijani. This documentation is written in English.
 
-Restoran və şirkətlər üzrə camaşırxana işini telefonda tez qeyd etmək: müştərini tapmaq, mədaxil/məxaric məbləğini və səbəbini yazmaq, kiloqramı istəyə görə əlavə etmək, sonra seçilmiş dövrün nəticəsinə baxmaq.
+## Goal
 
-## Əsas menyu
+Quickly record laundry work for restaurants and companies on the phone: find the customer, write the income/expense amount and reason, optionally add kilograms, then view the result for the selected period.
 
-- **İcmal:** **Gün**, **Ay** və **Hamısı** filtrləri. Gün və ay üçün tarix təqvimdən seçilir; **Hamısı** bütün əməliyyatları və ümumi qalığı göstərir. Xidmət haqqı, ödəniş, qalıq, kq və pərdə metr cəmləri göstərilir. Qalıq xidmət haqlarının cəmindən ödənişləri çıxmaqla hesablanır; artıq ödəniş ayrıca göstərilir.
-- **Müştərilər:** aktiv və arxiv siyahısı, axtarış, hər müştərinin ödəniləcək qalığı, yeni müştəri və müştəri məlumatlarını, o cümlədən kq tarifini düzəltmək.
-- **Müştəri səhifəsi:** əlaqə məlumatları, kq tarifi, çəki və pərdə metrinin cəmi, ödənilmiş məbləğ və ödəniləcək qalıq; əməliyyatlar — kq ilə borc əlavə etmək, ödəniş qəbul etmək və **Pərdə xidməti əlavə et**. Pərdə borcunda hər dəfə metr və həmin pərdə üçün ayrıca ₼/metr tarifi daxil edilir, məbləğ avtomatik hesablanır və müştərinin daimi kq tarifi dəyişmir. Əməliyyat tarixçəsini təsdiqlə təmizləmək və bütün əməliyyatları düzəltmək/silmək mümkündür.
-- **Xərclər:** təqvimdən tarix seçib gün və ya ay üzrə həmin dövrün xərclərinə və cəminə baxın. Xərc əlavə edilərkən adı, AZN məbləği və təqvimdən seçilən tarix daxil edilir; tarix bu günlə əvvəlcədən doldurulur.
-- **Təqvim:** aylıq təqvim, əməliyyat olan günlərin işarəsi, seçilmiş günün və həftə/ayın cəmləri.
-- **Hesablayıcı:** adi rəqəm düymələri və `+`, `−`, `×`, `÷`, faiz, işarə dəyişmə, silmə və bərabər əməliyyatları. Hesablayıcı nəticəsini müştəri və tarix seçərək əməliyyata göndərmək, tarixçədəki məbləği hesablayıcıya yükləyib həmin əməliyyatı yeniləmək mümkündür.
-- **Parametrlər:** məlumatların ehtiyat nüsxəsini ixrac etmək və təsdiqdən sonra bərpa etmək.
+## Main menu
 
-## Əməliyyat axını
+- **Summary:** **Day**, **Month**, and **All** filters. For day and month, the date is selected from the calendar; **All** shows all operations and the overall balance. Service charge, payment, balance, kg, and curtain meter totals are shown. Balance is calculated by subtracting payments from the sum of service charges; overpayment is shown separately.
+- **Customers:** active and archived list, search, each customer's outstanding balance, new customer, and editing customer information including the kg rate.
+- **Customer page:** contact information, kg rate, total weight and curtain meters, amount paid and outstanding balance; operations — add debt with kg, accept payment, and **Add curtain service**. In curtain debt, meters and a separate ₼/meter rate for that curtain are entered each time, the amount is calculated automatically, and the customer's permanent kg rate does not change. Operation history can be cleared with confirmation, and all operations can be edited/deleted.
+- **Expenses:** select a date from the calendar and view expenses for the selected day or month and their total. When adding an expense, enter the name, AZN amount, and date selected from the calendar; the date is pre-filled with today.
+- **Calendar:** monthly calendar, marking days with operations, and totals for the selected day and week/month.
+- **Calculator:** normal number buttons and `+`, `−`, `×`, `÷`, percent, sign change, delete, and equals operations. The calculator result can be sent to an operation by selecting customer and date; an amount from history can be loaded into the calculator and that operation updated.
 
-1. Müştəri üçün kq tarifini təyin edin.
-2. **Borc əlavə et** düyməsində kiloqramı daxil edin; tariflə hesablanmış borc tarix sahəsi bu günlə əvvəlcədən doldurulmuş halda yazılır. Təqvimdən başqa tarix seçmək və qeyd əlavə etmək istəyə bağlıdır. **Ödəniş qəbul et** düyməsində məbləği daxil edin; tarix yenə bu günlə əvvəlcədən doldurulur, təqvimdən dəyişmək və qeyd yazmaq istəyə bağlıdır. Ödəniş qalıq borcu azaldır.
-3. Pərdə işi üçün **Pərdə borcu əlavə et** düyməsində metr uzunluğunu və həmin işə uyğun metr tarifini daxil edin; məbləğ `metr × tarif` kimi hesablanır. Tarif yalnız həmin əməliyyat üçün saxlanır və müştərinin kq tarifinə təsir etmir.
-4. Xərci **Xərclər** bölməsində ad və məbləğlə qeyd edin; tarix bu günlə əvvəlcədən doldurulur və təqvimdən dəyişdirilə bilər. Xərclər siyahısında təqvimdən tarix seçib **Gün** və ya **Ay** üzrə qruplaşdırılmış xərclərə və dövrün cəminə baxın.
-5. Yadda saxladıqdan sonra müştəri əməliyyatı jurnalında qalır; istənilən əməliyyatı ayrıca açıb düzəltmək və ya silmək olar.
-6. Məbləğ hesablayıcıda hesablanıbsa, nəticəni müştəriyə göndərin. Mövcud əməliyyatı hesablayıcıya yükləmək onun dublikatını yaratmır; nəticə geri göndəriləndə həmin əməliyyat yenilənir.
+## Operation flow
 
-## Qarşılıqlı əlaqə və əlçatanlıq
+1. Set the kg rate for the customer.
+2. In the **Add debt** button, enter kilograms; the date field for the debt calculated by the rate is pre-filled with today. Choosing another date from the calendar and adding a note is optional. In the **Accept payment** button, enter the amount; the date is again pre-filled with today, changing from the calendar and writing a note is optional. Payment reduces the outstanding debt.
+3. For curtain work, in the **Add curtain debt** button, enter the meter length and the meter rate suitable for that job; the amount is calculated as `meter × rate`. The rate is stored only for that operation and does not affect the customer's kg rate.
+4. Record the expense in the **Expenses** section with the name and amount; the date is pre-filled with today and can be changed from the calendar. In the expenses list, select a date from the calendar and view expenses grouped by **Day** or **Month** and the total for the period.
+5. After saving, the customer operation remains in the journal; any operation can be opened separately to edit or delete.
+6. If the amount is calculated in the calculator, send the result to the customer. Loading an existing operation into the calculator does not create a duplicate; when the result is sent back, that operation is updated.
 
-- Ekranda görünən bütün mətnlər Azərbaycan dilində olmalıdır.
-- Böyük toxunma sahələri, yüksək kontrast, oxunaqlı mətn və rəqəm daxil etməyə uyğun klaviaturadan istifadə edin.
-- AZN iki qəpik rəqəmi və `₼` işarəsi ilə, çəki isə kiloqramla göstərilir.
-- Boş siyahıda bir aydın növbəti addım verin. Silmə və ehtiyat nüsxəsini bərpa etməzdən əvvəl təsdiq alın.
-- Gündəlik əməliyyatları sadə saxlayın, əsas düymələri baş barmaqla çatılan yerdə yerləşdirin.
+## Accessibility and interaction
+
+- All text visible on screen must be in Azerbaijani.
+- Use large touch targets, high contrast, readable text, and a keyboard suitable for entering numbers.
+- AZN is shown with two qəpik digits and the `₼` sign; weight is shown in kilograms.
+- In an empty list, provide a clear next step. Confirmation is required before deletion and backup restoration.
+- Keep daily operations simple; place main buttons within thumb reach.

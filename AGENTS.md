@@ -1,23 +1,25 @@
-# Kodlaşdırma agentləri üçün təlimat
+# Instructions for coding agents
 
-## Layihə
-- Restoran və şirkət müştəriləri üzrə camaşırxana əməliyyatlarını saxlayan, şəxsi və internetsiz Android tətbiqi.
-- Kotlin, Jetpack Compose və Room istifadə edin. Bulud, analitika və giriş sistemi əlavə etməyin.
-- Tətbiqin davranışını dəyişməzdən əvvəl `docs/ARCHITECTURE.md` və `docs/DESIGN.md` fayllarını oxuyun.
-- Tətbiqdə görünən bütün mətnlər Azərbaycan dilində olmalıdır.
+> **Language notice:** The application itself (all user-facing text) is in Azerbaijani. This documentation is written in English.
 
-## Məhsul qaydaları
-- Müştərinin adı, istəyə görə əlaqə məlumatı və qeyd, aktiv/arxiv vəziyyəti olur.
-- Müştərinin səhifəsində tarixçəsi və hər mədaxil/məxaric əməliyyatı ayrıca göstərilir. Əməliyyatda müştəri, tarix, məbləğ, istiqamət, istəyə görə səbəb və kiloqram saxlanır.
-- Eyni müştəriyə istənilən sayda əməliyyat əlavə, düzəliş və silmək mümkündür.
-- Pul qəpiklə tam ədəd kimi saxlanır; ekranda iki rəqəmli AZN və `₼` göstərilir.
-- Hesablayıcı adi gündəlik kalkulyator kimi işləyir. Nəticə müştəri və tarix seçilərək yeni əməliyyata göndərilə bilər. Tarixçədəki məbləğ hesablayıcıya yüklənə və həmin əməliyyat yenilənə bilər.
-- İcmal və təqvim cəmləri cihazın yerli gün, həftə və ay sərhədlərinə əsaslanır. Arxiv müştərinin əməliyyatlarını saxlayır. Müştərinin daimi silinməsi həm müştərinin, həm də əməliyyatlarının silinəcəyini təsdiqlətməlidir.
-- Ehtiyat nüsxəsinə müştərilər, əməliyyatlar və tətbiq parametrləri daxil olmalıdır. Bərpa istifadəçinin seçdiyi fayldan, təsdiqdən sonra aparılır.
+## Project
+- A personal, offline Android application that stores laundry operations for restaurant and company customers.
+- Use Kotlin, Jetpack Compose, and Room. Do not add cloud, analytics, or authentication systems.
+- Read `docs/ARCHITECTURE.md` and `docs/DESIGN.md` before changing the app's behavior.
+- All text visible in the application must be in Azerbaijani.
 
-## Mühəndislik
-- Mümkün olduqca sahə qaydalarını Compose interfeysindən və verilənlər bazasından ayırın.
-- Sabit ID-lər və açıq tarix dəyərləri işlədin. Sxem dəyişəndə əvvəlki məlumatları qoruyan Room miqrasiyası yazın; bazanı səssizcə silməyin.
-- Lazımsız asılılıqlar əlavə etməyin. İnternet icazəsi tələb olunmur.
-- README-də yığma, quraşdırma və yeniləmə təlimatlarını aktual saxlayın. APK yenilənəndə tətbiq ID-si və imza açarı eyni qalmalıdır.
-- Məxfi açarları, imza fayllarını, yerli SDK yollarını və yaradılmış build fayllarını Git-ə daxil etməyin.
+## Product rules
+- A customer has a name, optional contact information and note, and active/archived status.
+- On the customer page, history and each income/expense operation are shown separately. Each operation stores customer, date, amount, direction, optional reason, and kilograms.
+- Any number of operations can be added, edited, and deleted for the same customer.
+- Money is stored as an integer in qəpik; the screen shows two-digit AZN with `₼`.
+- The calculator works like a simple daily calculator. The result can be sent to a new operation by selecting a customer and date. An amount from history can be loaded into the calculator and that operation updated.
+- Summary and calendar totals are based on the device's local day, week, and month boundaries. Archiving keeps the customer's operations. Permanent deletion of a customer must confirm deletion of both the customer and their operations.
+- Backups must include customers, operations, and application settings. Restore is performed from the user-selected file after confirmation.
+
+## Engineering
+- Keep field rules as separate as possible from the Compose UI and database.
+- Use fixed IDs and explicit date values. Write Room migrations that preserve data when the schema changes; do not silently drop the database.
+- Do not add unnecessary dependencies. Internet permission is not required.
+- Keep README build, install, and update instructions up to date. When updating the APK, the app ID and signing key must remain the same.
+- Do not commit secret keys, signing files, local SDK paths, or generated build files to Git.
